@@ -39,7 +39,8 @@ function requireTidalAuth(req, res, next) {
 
 app.get('/api/session', (req, res) => {
   const session = readSession(req);
-  res.json({ authenticated: !!session?.accessToken });
+  if (!session?.accessToken) return res.json({ authenticated: false });
+  res.json({ authenticated: true, email: session.email || null });
 });
 
 app.post('/auth/tidal/login', async (req, res) => {
@@ -87,6 +88,15 @@ app.post('/api/resolve', requireTidalAuth, async (req, res) => {
   try {
     const resolved = await tidalApi.getByUrl(req, res, url);
     res.json(resolved);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message, needReconnect: !!err.needReconnect });
+  }
+});
+
+app.get('/api/playlists', requireTidalAuth, async (req, res) => {
+  try {
+    const playlists = await tidalApi.getUserPlaylists(req, res);
+    res.json({ playlists });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message, needReconnect: !!err.needReconnect });
   }

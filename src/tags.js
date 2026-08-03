@@ -1,7 +1,3 @@
-// Writes ID3/Xiph/MP4 metadata + cover art, replacing aigpy.tag.TagTool from
-// tidal_dl/download.py::__setMetaData__. Uses node-taglib-sharp, which picks the right tag
-// format (FLAC Xiph comments, MP4 atoms, ID3v2) based on the file extension.
-
 const { File, Picture, ByteVector, PictureType } = require('node-taglib-sharp');
 
 function writeTrackTags(filePath, meta) {

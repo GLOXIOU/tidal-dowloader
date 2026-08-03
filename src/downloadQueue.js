@@ -1,8 +1,3 @@
-// In-process download queue: replaces Python's ThreadPoolExecutor-based downloadTracks() from
-// tidal_dl/download.py. No Redis/DB - this is a personal, single-user, self-hosted tool, so an
-// in-memory list with a few concurrent workers is enough. Emits 'update' events consumed by the
-// SSE endpoint in server.js to drive the frontend's queue UI.
-
 const EventEmitter = require('events');
 const fs = require('fs');
 const tidalApi = require('./tidalApi');
@@ -34,7 +29,6 @@ class DownloadQueue extends EventEmitter {
     this.emit('update', this._public(item));
   }
 
-  // `resolved` is the { type, data } shape returned by tidalApi.getByUrl / a search result pick.
   async enqueueFromResolved(session, resolved, quality) {
     const reqShim = { tidal: { ...session } };
 
@@ -52,7 +46,7 @@ class DownloadQueue extends EventEmitter {
     }
 
     if (resolved.type === 'playlist') {
-      const { tracks } = await tidalApi.getItems(reqShim, noopRes, resolved.data.id, 'playlist');
+      const { tracks } = await tidalApi.getItems(reqShim, noopRes, resolved.data.uuid, 'playlist');
       const ids = [];
       for (let i = 0; i < tracks.length; i++) {
         const t = tracks[i];
@@ -130,13 +124,13 @@ class DownloadQueue extends EventEmitter {
     try {
       contributors = await tidalApi.getTrackContributors(reqShim, noopRes, track.id);
     } catch {
-      /* optional metadata */
+      contributors = null;
     }
     let lyrics = null;
     try {
       lyrics = (await tidalApi.getLyrics(reqShim, noopRes, track.id))?.subtitles || null;
     } catch {
-      /* optional metadata */
+      lyrics = null;
     }
     const coverBuffer = await tidalApi.getCoverData(album.cover);
 

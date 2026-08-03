@@ -1,12 +1,3 @@
-// OAuth2 device-code login against Tidal (ported from tidal_dl/tidal.py's
-// getDeviceCode/checkAuthStatus/refreshAccessToken/verifyAccessToken), wired into the
-// JWT-session-cookie pattern used in shazam-to-platform's src/tidalAuth.js.
-//
-// Unlike shazam-to-platform (authorization-code + PKCE against the official partner API),
-// this uses the device-code grant against Tidal's private API - the only flow that later lets
-// tidalApi.js fetch a playable stream manifest. No password is ever entered in this app: the
-// user authorizes by typing a short code on tidal.com on any device.
-
 const jwt = require('jsonwebtoken');
 const { getBestKey } = require('./apiKeys');
 
@@ -15,14 +6,12 @@ const TOKEN_BASE = 'https://auth.tidal.com/v1/oauth2';
 const SESSION_COOKIE = 'tidal_session';
 const SCOPE = 'r_usr+w_usr+w_sub';
 
-// Single-user, self-hosted app: one pending device-flow attempt at a time is enough.
 let pendingFlow = null;
 
-async function postForm(path, data, useAuth) {
-  const key = getBestKey();
+async function postForm(path, data, clientId, clientSecret) {
   const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-  if (useAuth) {
-    headers.Authorization = 'Basic ' + Buffer.from(`${key.clientId}:${key.clientSecret}`).toString('base64');
+  if (clientSecret) {
+    headers.Authorization = 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
   }
   const res = await fetch(TOKEN_BASE + path, {
     method: 'POST',
@@ -59,7 +48,6 @@ async function startDeviceLogin() {
   };
 }
 
-// Returns { done: false } while waiting, { done: true, session } once linked, throws on timeout/error.
 async function pollDeviceLogin() {
   if (!pendingFlow) throw new Error('No pending login. Start one first.');
   if (Date.now() > pendingFlow.expiresAt) {
@@ -75,7 +63,8 @@ async function pollDeviceLogin() {
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       scope: SCOPE,
     },
-    true,
+    pendingFlow.clientId,
+    pendingFlow.clientSecret,
   );
 
   if (!ok) {
@@ -84,37 +73,44 @@ async function pollDeviceLogin() {
     throw new Error(data.error_description || 'Login failed.');
   }
 
+  const { clientId, clientSecret } = pendingFlow;
   pendingFlow = null;
   return {
     done: true,
     session: {
       userId: data.user?.userId,
+      email: data.user?.email,
       countryCode: data.user?.countryCode,
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       expiresAt: Date.now() + data.expires_in * 1000,
+      clientId,
+      clientSecret,
     },
   };
 }
 
-async function refreshAccessToken(refreshToken) {
-  const key = getBestKey();
+async function refreshAccessToken(session) {
+  const clientId = session.clientId || getBestKey().clientId;
+  const clientSecret = session.clientSecret || getBestKey().clientSecret;
   const { ok, data } = await postForm(
     '/token',
     {
-      client_id: key.clientId,
-      refresh_token: refreshToken,
+      client_id: clientId,
+      refresh_token: session.refreshToken,
       grant_type: 'refresh_token',
       scope: SCOPE,
     },
-    true,
+    clientId,
+    clientSecret,
   );
   if (!ok) return null;
   return {
     userId: data.user?.userId,
+    email: data.user?.email,
     countryCode: data.user?.countryCode,
     accessToken: data.access_token,
-    refreshToken: data.refresh_token || refreshToken,
+    refreshToken: data.refresh_token || session.refreshToken,
     expiresAt: Date.now() + data.expires_in * 1000,
   };
 }

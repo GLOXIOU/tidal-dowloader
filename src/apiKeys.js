@@ -1,8 +1,3 @@
-// Ported from tidal_dl/apiKey.py (Tidal-Media-Downloader, Apache-2.0).
-// These are reverse-engineered OAuth2 device-flow client credentials belonging to Tidal's own
-// official apps (Fire TV, Android Auto, etc.) - not a client id/secret issued to this project.
-// See NOTICE for the original sources of each entry.
-
 const EMBEDDED_KEYS = {
   version: '1.0.1',
   keys: [
@@ -55,17 +50,16 @@ function getKeys() {
   return apiKeys.keys;
 }
 
-// Best client = first one marked valid that supports Master quality; falls back to the first valid one.
 function getBestKey() {
   const keys = apiKeys.keys;
+  const fullyCapable = keys.find((k) => k.valid && /normal/i.test(k.formats) && /master/i.test(k.formats));
+  if (fullyCapable) return fullyCapable;
   const masterCapable = keys.find((k) => k.valid && /master/i.test(k.formats));
   if (masterCapable) return masterCapable;
   const anyValid = keys.find((k) => k.valid);
   return anyValid || keys[0];
 }
 
-// The Python project refreshes this list from a GitHub gist at import time, because Tidal
-// periodically revokes hardcoded client secrets. We do the same, best-effort, at startup only.
 async function refreshFromGist() {
   try {
     const res = await fetch('https://api.github.com/gists/48d01f5a24b4b7b37f19443977c22cd6');
@@ -76,7 +70,7 @@ async function refreshFromGist() {
     const parsed = JSON.parse(content);
     if (parsed?.keys?.length) apiKeys = parsed;
   } catch {
-    // keep embedded fallback
+    return;
   }
 }
 

@@ -3,9 +3,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const dashboardSection = document.getElementById('dashboard-section');
   const loginBtn = document.getElementById('login-btn');
   const logoutBtn = document.querySelector('.logout-btn');
+  const profileEmail = document.querySelector('.profile-email');
   const linkInput = document.getElementById('link-input');
   const qualitySelect = document.getElementById('quality-select');
   const resultsContainer = document.getElementById('results-container');
+  const playlistsContainer = document.getElementById('playlists-container');
   const queueContainer = document.getElementById('queue-container');
   const loginModal = document.getElementById('login-modal');
   const deviceLink = document.getElementById('device-link');
@@ -14,10 +16,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   let eventSource = null;
   const queueItems = new Map();
 
-  function showDashboard() {
+  function showDashboard(email) {
+    profileEmail.textContent = email || 'Compte Tidal connecté';
     loginSection.style.display = 'none';
     dashboardSection.style.display = 'flex';
     connectQueueStream();
+    fetchPlaylists();
   }
 
   function showLogin() {
@@ -33,7 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const res = await fetch('/api/session');
       const data = await res.json();
-      if (data.authenticated) showDashboard();
+      if (data.authenticated) showDashboard(data.email);
       else showLogin();
     } catch {
       showLogin();
@@ -51,7 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (data.done) {
         loginModal.classList.remove('active');
-        showDashboard();
+        checkSession();
         return;
       }
       setTimeout(pollLogin, 2500);
@@ -85,38 +89,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  function formatDuration(seconds) {
-    if (!seconds && seconds !== 0) return '';
-    const m = Math.floor(seconds / 60);
-    const s = Math.round(seconds % 60);
-    return `${m}:${String(s).padStart(2, '0')}`;
-  }
-
   function coverUrl(cover, size = '160') {
     if (!cover) return '';
     return `https://resources.tidal.com/images/${cover.replace(/-/g, '/')}/${size}x${size}.jpg`;
   }
 
-  function renderResultCard({ type, id, title, sub, cover }) {
+  function coverIdFor(type, item) {
+    if (type === 'track' || type === 'video') return item.album?.cover;
+    if (type === 'album') return item.cover;
+    if (type === 'playlist') return item.squareImage || item.image;
+    if (type === 'artist') return item.picture;
+    return null;
+  }
+
+  function imgTag(cover) {
+    if (!cover) return '';
+    return `<img src="${cover}" alt="" onerror="this.remove()">`;
+  }
+
+  function renderCard(outerClass, prefix, { title, sub, cover }) {
     const card = document.createElement('div');
-    card.className = 'result-card';
+    card.className = outerClass;
     card.innerHTML = `
-      <div class="result-image">${cover ? `<img src="${cover}" alt="">` : ''}</div>
-      <div class="result-info">
-        <div class="result-title"></div>
-        <div class="result-sub"></div>
+      <div class="${prefix}-image">${imgTag(cover)}</div>
+      <div class="${prefix}-info">
+        <div class="${prefix}-title"></div>
+        <div class="${prefix}-sub"></div>
       </div>
-      <span class="result-type-chip"></span>
-      <button class="download-btn" type="button">Télécharger</button>
     `;
-    card.querySelector('.result-title').textContent = title;
-    card.querySelector('.result-sub').textContent = sub || '';
-    card.querySelector('.result-type-chip').textContent = type;
-    card.querySelector('.download-btn').addEventListener('click', (e) => {
+    card.querySelector(`.${prefix}-title`).textContent = title;
+    card.querySelector(`.${prefix}-sub`).textContent = sub || '';
+    return card;
+  }
+
+  function downloadButton(type, id) {
+    const btn = document.createElement('button');
+    btn.className = 'download-btn';
+    btn.type = 'button';
+    btn.textContent = 'Télécharger';
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
       downloadItem(type, id);
     });
-    return card;
+    return btn;
   }
 
   async function downloadItem(type, id) {
@@ -145,18 +160,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     for (const [key, type] of groups) {
       for (const item of data[key]?.items || []) {
         any = true;
-        const sub = type === 'track' || type === 'album'
-          ? (item.artists || []).map((a) => a.name).join(', ')
-          : `${item.numberOfTracks || 0} titres`;
-        resultsContainer.appendChild(
-          renderResultCard({
-            type,
-            id: type === 'playlist' ? item.uuid : item.id,
-            title: item.title,
-            sub,
-            cover: coverUrl(item.album?.cover || item.cover || item.image),
-          }),
-        );
+        const id = type === 'playlist' ? item.uuid : item.id;
+        const sub = type === 'playlist' ? `${item.numberOfTracks || 0} titres` : (item.artists || []).map((a) => a.name).join(', ');
+        const card = renderCard('result-card', 'result', {
+          title: item.title,
+          sub,
+          cover: coverUrl(coverIdFor(type, item)),
+        });
+        const chip = document.createElement('span');
+        chip.className = 'result-type-chip';
+        chip.textContent = type;
+        card.appendChild(chip);
+        card.appendChild(downloadButton(type, id));
+        resultsContainer.appendChild(card);
       }
     }
     if (!any) resultsContainer.innerHTML = '<div class="empty-state">Aucun résultat.</div>';
@@ -165,18 +181,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   function renderPreview(resolved) {
     resultsContainer.innerHTML = '';
     const { type, data } = resolved;
+    const id = type === 'playlist' ? data.uuid : data.id;
     const sub = type === 'playlist'
       ? `${data.numberOfTracks || 0} titres`
       : (data.artists || [data.artist]).filter(Boolean).map((a) => a.name).join(', ');
-    resultsContainer.appendChild(
-      renderResultCard({
-        type,
-        id: type === 'playlist' ? data.uuid : data.id,
-        title: data.title,
-        sub,
-        cover: coverUrl(data.cover || data.image),
-      }),
-    );
+
+    const card = renderCard('result-card', 'result', { title: data.title, sub, cover: coverUrl(coverIdFor(type, data)) });
+    const chip = document.createElement('span');
+    chip.className = 'result-type-chip';
+    chip.textContent = type;
+    card.appendChild(chip);
+    card.appendChild(downloadButton(type, id));
+    resultsContainer.appendChild(card);
   }
 
   let debounceTimer;
@@ -211,6 +227,37 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }, 400);
   });
+
+  async function fetchPlaylists() {
+    playlistsContainer.innerHTML = '<div class="empty-state">Chargement de tes playlists...</div>';
+    try {
+      const res = await fetch('/api/playlists');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Impossible de charger tes playlists.');
+
+      const playlists = data.playlists || [];
+      if (!playlists.length) {
+        playlistsContainer.innerHTML = '<div class="empty-state">Aucune playlist trouvée sur ton compte Tidal.</div>';
+        return;
+      }
+
+      const grid = document.createElement('div');
+      grid.className = 'playlists-grid';
+      for (const pl of playlists) {
+        const card = renderCard('playlist-card', 'playlist', {
+          title: pl.title,
+          sub: `${pl.numberOfTracks || 0} titres`,
+          cover: coverUrl(coverIdFor('playlist', pl)),
+        });
+        card.appendChild(downloadButton('playlist', pl.uuid));
+        grid.appendChild(card);
+      }
+      playlistsContainer.innerHTML = '';
+      playlistsContainer.appendChild(grid);
+    } catch (err) {
+      playlistsContainer.innerHTML = `<div class="empty-state">${err.message}</div>`;
+    }
+  }
 
   function renderQueueItem(item) {
     let el = queueItems.get(item.id);

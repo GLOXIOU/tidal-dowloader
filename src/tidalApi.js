@@ -1,9 +1,3 @@
-// Ported from tidal_dl/tidal.py (Tidal-Media-Downloader, Apache-2.0): search, catalog lookups,
-// stream-manifest resolution (BTS + DASH), lyrics, covers. Talks to Tidal's private API
-// (api.tidalhifi.com / api.tidal.com / listen.tidal.com) using the device-flow access token from
-// tidalAuth.js. Wrapped with the same auto-refresh-on-401 pattern used in shazam-to-platform's
-// src/tidalApi.js.
-
 const { XMLParser } = require('fast-xml-parser');
 const { refreshAccessToken, buildSessionCookie } = require('./tidalAuth');
 
@@ -19,7 +13,7 @@ async function withAutoRefresh(req, res, fn) {
   } catch (err) {
     if (err.status !== 401 || !req.tidal.refreshToken) throw err;
 
-    const refreshed = await refreshAccessToken(req.tidal.refreshToken);
+    const refreshed = await refreshAccessToken(req.tidal);
     if (!refreshed) {
       const e = new Error('Session Tidal expirée, merci de te reconnecter.');
       e.status = 401;
@@ -27,8 +21,8 @@ async function withAutoRefresh(req, res, fn) {
       throw e;
     }
 
-    req.tidal = refreshed;
-    buildSessionCookie(res, refreshed);
+    req.tidal = { ...req.tidal, ...refreshed };
+    buildSessionCookie(res, req.tidal);
     return await fn(req.tidal);
   }
 }
@@ -115,6 +109,12 @@ function getPlaylist(req, res, id) {
   return withAutoRefresh(req, res, (session) => apiGet(session, `playlists/${id}`));
 }
 
+function getUserPlaylists(req, res) {
+  return withAutoRefresh(req, res, (session) =>
+    apiGetAllItems(session, `users/${session.userId}/playlists`),
+  );
+}
+
 async function getItems(req, res, id, type) {
   let data;
   if (type === 'playlist') data = await withAutoRefresh(req, res, (s) => apiGetAllItems(s, `playlists/${id}/items`));
@@ -151,7 +151,6 @@ const mpdParser = new XMLParser({
 });
 
 function parseMpd(xml) {
-  // Strip the default namespace decl (first occurrence only), same as the Python port.
   const cleaned = xml.replace(/xmlns="[^"]+"/, '');
   const doc = mpdParser.parse(cleaned);
   const periods = doc.MPD?.Period || [];
@@ -263,8 +262,7 @@ async function getVideoStreamUrl(req, res, videoId, minHeight = 1080) {
     }
     const manifest = JSON.parse(Buffer.from(resp.manifest, 'base64').toString('utf-8'));
     const variants = await getResolutionList(manifest.urls[0]);
-    let chosen = variants.find((v) => v.height >= minHeight) || variants[variants.length - 1];
-    return chosen;
+    return variants.find((v) => v.height >= minHeight) || variants[variants.length - 1];
   });
 }
 
@@ -312,6 +310,7 @@ module.exports = {
   getTrack,
   getVideo,
   getPlaylist,
+  getUserPlaylists,
   getItems,
   getByUrl,
   getStreamUrl,

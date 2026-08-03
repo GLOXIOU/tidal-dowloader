@@ -18,12 +18,12 @@
         <div id="dashboard-section" class="dashboard-section" style="display: none;">
             <h1 class="hero-title">tidal-dowloader</h1>
 
-            <div class="profile-card">
+            <div class="profile-card row">
                 <span class="profile-email">Compte Tidal connecté</span>
                 <button class="logout-btn">Déconnexion</button>
             </div>
 
-            <div class="search-area">
+            <div class="search-area row">
                 <div class="input-container">
                     <input type="text" id="link-input" placeholder="Cherche un titre, ou colle un lien tidal.com..." />
                 </div>
@@ -35,10 +35,15 @@
                 </select>
             </div>
 
-            <div id="results-container" class="results-container"></div>
+            <div id="results-container" class="results-container row"></div>
 
-            <div class="section-heading">Téléchargements</div>
-            <div id="queue-container" class="queue-container">
+            <div class="section-heading row">Tes playlists</div>
+            <div id="playlists-container" class="row">
+                <div class="empty-state">Chargement de tes playlists...</div>
+            </div>
+
+            <div class="section-heading row">Téléchargements</div>
+            <div id="queue-container" class="queue-container row">
                 <div class="empty-state">Rien pour l'instant. Cherche ou colle un lien ci-dessus.</div>
             </div>
         </div>

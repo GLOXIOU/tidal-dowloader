@@ -1,9 +1,3 @@
-// Output path resolution. Uses the same tag placeholders documented in the upstream Python
-// project's README ({ArtistName}, {AlbumTitle}, {TrackNumber}, {TrackTitle}, ...).
-// The base directory is read from a small settings file so that a later "send finished
-// downloads to a specific folder" toggle only needs to write to this same file - no
-// architecture change needed then.
-
 const fs = require('fs');
 const path = require('path');
 

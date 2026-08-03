@@ -89,6 +89,12 @@ html, body {
     align-items: center;
 }
 
+.row {
+    max-width: 600px;
+    width: 90%;
+    margin: 0 auto;
+}
+
 .profile-card {
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.05);
@@ -97,9 +103,7 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    max-width: 600px;
-    width: 90%;
-    margin: 0 auto 30px auto;
+    margin-bottom: 30px;
 }
 
 .profile-email {
@@ -131,9 +135,7 @@ html, body {
 }
 
 .search-area {
-    max-width: 600px;
-    width: 90%;
-    margin: 0 auto 16px auto;
+    margin-bottom: 16px;
     display: flex;
     gap: 10px;
     align-items: center;
@@ -181,10 +183,22 @@ html, body {
     cursor: pointer;
 }
 
+.section-heading {
+    font-size: 1.1rem;
+    font-family: "Poppins", sans-serif;
+    font-weight: 600;
+    color: #f1f1f1;
+    margin: 28px auto 14px auto;
+}
+
+.results-container, .queue-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
 .result-card, .queue-item {
-    max-width: 600px;
-    width: 90%;
-    margin: 0 auto 10px auto;
+    width: 100%;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -204,27 +218,28 @@ html, body {
     transform: translateY(-2px);
 }
 
-.result-image, .queue-item-image {
+.result-image, .queue-item-image, .playlist-image {
     width: 52px;
     height: 52px;
     border-radius: 10px;
     overflow: hidden;
-    background: #000;
+    background: rgba(255,255,255,0.06);
     flex-shrink: 0;
 }
 
-.result-image img, .queue-item-image img {
+.result-image img, .queue-item-image img, .playlist-image img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
 }
 
-.result-info, .queue-item-info {
+.result-info, .queue-item-info, .playlist-info {
     flex: 1;
     min-width: 0;
 }
 
-.result-title, .queue-item-title {
+.result-title, .queue-item-title, .playlist-title {
     font-weight: 600;
     font-size: 0.98rem;
     white-space: nowrap;
@@ -233,7 +248,7 @@ html, body {
     margin-bottom: 2px;
 }
 
-.result-sub, .queue-item-sub {
+.result-sub, .queue-item-sub, .playlist-sub {
     font-size: 0.85rem;
     color: rgba(255,255,255,0.5);
     white-space: nowrap;
@@ -271,20 +286,20 @@ html, body {
     box-shadow: 0 10px 24px rgba(29,185,84,0.2);
 }
 
-.results-container, .queue-container {
-    width: 100%;
-    max-width: 600px;
-    margin: 0 auto;
+.playlists-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
 }
 
-.section-heading {
-    font-size: 1.1rem;
-    font-family: "Poppins", sans-serif;
-    font-weight: 600;
-    color: #f1f1f1;
-    margin: 28px auto 14px auto;
-    max-width: 600px;
-    width: 90%;
+.playlist-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 16px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
 }
 
 .empty-state {
@@ -437,15 +452,7 @@ html, body {
     .login-section {
         padding: 40px 16px;
     }
-    .profile-card,
-    .search-area,
-    .result-card,
-    .queue-item,
-    .results-container,
-    .queue-container {
-        width: 100%;
-    }
-    .section-heading {
+    .row {
         width: 100%;
     }
     .search-area {
@@ -453,5 +460,8 @@ html, body {
     }
     #quality-select {
         width: 100%;
+    }
+    .playlists-grid {
+        grid-template-columns: 1fr;
     }
 }
