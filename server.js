@@ -55,6 +55,7 @@ app.post('/auth/tidal/login', async (req, res) => {
 app.get('/auth/tidal/poll', async (req, res) => {
   try {
     const result = await pollDeviceLogin();
+    if (result.rotated) return res.json(result);
     if (!result.done) return res.json({ done: false });
 
     buildSessionCookie(res, result.session);

@@ -75,6 +75,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (typeof showToast === 'function') showToast(data.error || 'Connexion échouée.', 'error');
         return;
       }
+      if (data.rotated) {
+        deviceLink.href = data.verificationUrl;
+        deviceLink.textContent = data.verificationUrl.replace(/^https?:\/\//, '');
+        deviceCode.textContent = data.userCode;
+        setTimeout(() => pollLogin(restartAttempts), (data.interval || 2) * 1000);
+        return;
+      }
       if (data.done) {
         loginModal.classList.remove('active');
         checkSession();

@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { getBestKey } = require('./apiKeys');
+const { getBestKey, rankedKeys, markKeyBlocked } = require('./apiKeys');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const TOKEN_BASE = 'https://auth.tidal.com/v1/oauth2';
@@ -19,35 +19,57 @@ async function postForm(path, data, clientId, clientSecret) {
     headers,
     body: new URLSearchParams(data).toString(),
   });
-  const json = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data: json };
+  const raw = await res.text();
+  let json = {};
+  let isJson = true;
+  try {
+    json = raw ? JSON.parse(raw) : {};
+  } catch {
+    isJson = false;
+  }
+  // Tidal's CDN returns an HTML "Request blocked" page (not JSON) for client keys it has cut off.
+  const blocked = !isJson || (res.status === 403 && !json.error);
+  return { ok: res.ok, status: res.status, data: json, blocked };
 }
 
 async function startDeviceLogin() {
-  const key = getBestKey();
-  const { ok, status, data } = await postForm('/device_authorization', {
-    client_id: key.clientId,
-    scope: SCOPE,
-  });
-  if (!ok || !data.deviceCode) {
-    console.error('Tidal device_authorization failed:', status, JSON.stringify(data));
-    throw new Error('Device authorization failed. Tidal rejected the client key.');
+  const candidates = rankedKeys();
+  let lastErr = null;
+
+  for (const key of candidates) {
+    const { ok, status, data, blocked } = await postForm('/device_authorization', {
+      client_id: key.clientId,
+      scope: SCOPE,
+    });
+
+    if (blocked) {
+      markKeyBlocked(key.clientId);
+      lastErr = new Error('Client key blocked by Tidal.');
+      continue;
+    }
+    if (!ok || !data.deviceCode) {
+      console.error('Tidal device_authorization failed:', status, JSON.stringify(data));
+      lastErr = new Error('Device authorization failed. Tidal rejected the client key.');
+      continue;
+    }
+
+    pendingFlow = {
+      clientId: key.clientId,
+      clientSecret: key.clientSecret,
+      deviceCode: data.deviceCode,
+      interval: data.interval || 2,
+      expiresAt: Date.now() + (data.expiresIn || 300) * 1000,
+    };
+
+    return {
+      verificationUrl: `http://${data.verificationUri}/${data.userCode}`,
+      userCode: data.userCode,
+      interval: pendingFlow.interval,
+      expiresIn: data.expiresIn || 300,
+    };
   }
 
-  pendingFlow = {
-    clientId: key.clientId,
-    clientSecret: key.clientSecret,
-    deviceCode: data.deviceCode,
-    interval: data.interval || 2,
-    expiresAt: Date.now() + (data.expiresIn || 300) * 1000,
-  };
-
-  return {
-    verificationUrl: `http://${data.verificationUri}/${data.userCode}`,
-    userCode: data.userCode,
-    interval: pendingFlow.interval,
-    expiresIn: data.expiresIn || 300,
-  };
+  throw lastErr || new Error('No usable Tidal client key available.');
 }
 
 async function pollDeviceLogin() {
@@ -63,7 +85,7 @@ async function pollDeviceLogin() {
     throw err;
   }
 
-  const { ok, status, data } = await postForm(
+  const { ok, status, data, blocked } = await postForm(
     '/token',
     {
       client_id: pendingFlow.clientId,
@@ -77,6 +99,15 @@ async function pollDeviceLogin() {
 
   if (!ok) {
     if (status === 400 && Number(data.sub_status) === 1002) return { done: false };
+
+    if (blocked) {
+      console.error(`Tidal client key ${pendingFlow.clientId} blocked by CDN, rotating to another key.`);
+      markKeyBlocked(pendingFlow.clientId);
+      pendingFlow = null;
+      const rotated = await startDeviceLogin();
+      return { done: false, rotated: true, ...rotated };
+    }
+
     console.error('Tidal device token exchange failed:', status, JSON.stringify(data));
     pendingFlow = null;
     throw new Error(data.error_description || data.error || 'Login failed.');

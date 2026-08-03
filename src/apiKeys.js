@@ -45,6 +45,7 @@ const EMBEDDED_KEYS = {
 };
 
 let apiKeys = EMBEDDED_KEYS;
+const blockedClientIds = new Set();
 
 function getKeys() {
   return apiKeys.keys;
@@ -54,14 +55,28 @@ function isValid(key) {
   return key.valid === true || String(key.valid).toLowerCase() === 'true';
 }
 
+function rankedKeys() {
+  const keys = apiKeys.keys.filter((k) => !blockedClientIds.has(k.clientId));
+  const fullyCapable = keys.filter((k) => isValid(k) && /normal/i.test(k.formats) && /master/i.test(k.formats));
+  const masterCapable = keys.filter((k) => isValid(k) && /master/i.test(k.formats));
+  const anyValid = keys.filter((k) => isValid(k));
+  const seen = new Set();
+  const ordered = [...fullyCapable, ...masterCapable, ...anyValid, ...keys];
+  return ordered.filter((k) => {
+    if (seen.has(k.clientId)) return false;
+    seen.add(k.clientId);
+    return true;
+  });
+}
+
 function getBestKey() {
-  const keys = apiKeys.keys;
-  const fullyCapable = keys.find((k) => isValid(k) && /normal/i.test(k.formats) && /master/i.test(k.formats));
-  if (fullyCapable) return fullyCapable;
-  const masterCapable = keys.find((k) => isValid(k) && /master/i.test(k.formats));
-  if (masterCapable) return masterCapable;
-  const anyValid = keys.find((k) => isValid(k));
-  return anyValid || keys[0];
+  return rankedKeys()[0] || apiKeys.keys[0];
+}
+
+// Tidal's CDN sometimes blocks specific client keys once they get too widely used/leaked.
+// When that happens mid-login we blacklist the key for this process and fall back to the next one.
+function markKeyBlocked(clientId) {
+  blockedClientIds.add(clientId);
 }
 
 async function refreshFromGist() {
@@ -78,4 +93,4 @@ async function refreshFromGist() {
   }
 }
 
-module.exports = { getKeys, getBestKey, refreshFromGist };
+module.exports = { getKeys, getBestKey, rankedKeys, markKeyBlocked, refreshFromGist };
