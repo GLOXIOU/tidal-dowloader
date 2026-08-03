@@ -27,7 +27,6 @@ async function postForm(path, data, clientId, clientSecret) {
   } catch {
     isJson = false;
   }
-  // Tidal's CDN returns an HTML "Request blocked" page (not JSON) for client keys it has cut off.
   const blocked = !isJson || (res.status === 403 && !json.error);
   return { ok: res.ok, status: res.status, data: json, blocked };
 }

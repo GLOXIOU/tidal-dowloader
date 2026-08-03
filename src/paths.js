@@ -48,8 +48,39 @@ function getTrackPath(track, stream, album) {
   return path.join(dir, `${num} - ${title}${extensionForStream(stream)}`);
 }
 
+function trackFileName(track, stream) {
+  const title = sanitize(track.version ? `${track.title} (${track.version})` : track.title);
+  const artist = sanitize(track.artists?.[0]?.name || track.artist?.name || 'Unknown Artist');
+  return `${title} - ${artist}${extensionForStream(stream)}`;
+}
+
+function getSingleTrackPath(track, stream) {
+  return path.join(getBaseDir(), trackFileName(track, stream));
+}
+
+function getPlaylistDir(playlistTitle) {
+  const dir = path.join(getBaseDir(), sanitize(playlistTitle));
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function getPlaylistTrackPath(track, stream, playlistTitle) {
+  return path.join(getPlaylistDir(playlistTitle), trackFileName(track, stream));
+}
+
 function getCoverPath(album) {
   return path.join(getAlbumDir(album), 'cover.jpg');
 }
 
-module.exports = { getSettings, saveSettings, getBaseDir, getAlbumDir, getTrackPath, getCoverPath, sanitize };
+module.exports = {
+  getSettings,
+  saveSettings,
+  getBaseDir,
+  getAlbumDir,
+  getTrackPath,
+  getSingleTrackPath,
+  getPlaylistDir,
+  getPlaylistTrackPath,
+  getCoverPath,
+  sanitize,
+};

@@ -2,6 +2,14 @@ const EMBEDDED_KEYS = {
   version: '1.0.1',
   keys: [
     {
+      platform: 'Desktop (python-tidal default)',
+      formats: 'Normal/High/HiFi/Master',
+      clientId: 'fX2JxdmntZWK0ixT',
+      clientSecret: '1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg=',
+      valid: true,
+      from: 'tamland (https://github.com/tamland/python-tidal)',
+    },
+    {
       platform: 'Fire TV',
       formats: 'Normal/High/HiFi(No Master)',
       clientId: 'OmDtrzFgyVVL6uW56OnFA2COiabqm',
@@ -73,8 +81,6 @@ function getBestKey() {
   return rankedKeys()[0] || apiKeys.keys[0];
 }
 
-// Tidal's CDN sometimes blocks specific client keys once they get too widely used/leaked.
-// When that happens mid-login we blacklist the key for this process and fall back to the next one.
 function markKeyBlocked(clientId) {
   blockedClientIds.add(clientId);
 }
@@ -87,7 +93,11 @@ async function refreshFromGist() {
     const content = data?.files?.['tidal-api-key.json']?.content;
     if (!content) return;
     const parsed = JSON.parse(content);
-    if (parsed?.keys?.length) apiKeys = parsed;
+    if (!parsed?.keys?.length) return;
+
+    const knownIds = new Set(apiKeys.keys.map((k) => k.clientId));
+    const newKeys = parsed.keys.filter((k) => !knownIds.has(k.clientId));
+    if (newKeys.length) apiKeys = { ...apiKeys, keys: [...apiKeys.keys, ...newKeys] };
   } catch {
     return;
   }

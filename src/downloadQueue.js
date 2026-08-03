@@ -3,7 +3,7 @@ const fs = require('fs');
 const tidalApi = require('./tidalApi');
 const { decryptSecurityToken, decryptFile } = require('./decryption');
 const { writeTrackTags } = require('./tags');
-const { getTrackPath } = require('./paths');
+const { getTrackPath, getSingleTrackPath, getPlaylistTrackPath } = require('./paths');
 
 const MAX_CONCURRENT = 3;
 const noopRes = { cookie() {}, clearCookie() {} };
@@ -56,7 +56,7 @@ class DownloadQueue extends EventEmitter {
       error: null,
       path: null,
     };
-    item.task = () => this._downloadOneTrack(reqShim, item, track, album, quality);
+    item.task = () => this._downloadOneTrack(reqShim, item, track, album, quality, { type: 'single' });
     this.items.unshift(item);
     this._emitUpdate(item);
     this._schedule();
@@ -111,13 +111,14 @@ class DownloadQueue extends EventEmitter {
   async _downloadBatch(reqShim, item, tracks, listData, isPlaylist, quality) {
     let done = 0;
     let lastError = null;
+    const pathCtx = isPlaylist ? { type: 'playlist', playlistTitle: listData.title } : { type: 'album' };
 
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
       track.trackNumberOnPlaylist = i + 1;
       try {
         const album = isPlaylist ? await tidalApi.getAlbum(reqShim, noopRes, track.album.id) : listData;
-        await this._downloadOneTrack(reqShim, null, track, album, quality);
+        await this._downloadOneTrack(reqShim, null, track, album, quality, pathCtx);
         done++;
       } catch (err) {
         lastError = err;
@@ -136,9 +137,14 @@ class DownloadQueue extends EventEmitter {
     this._emitUpdate(item);
   }
 
-  async _downloadOneTrack(reqShim, item, track, album, quality) {
+  async _downloadOneTrack(reqShim, item, track, album, quality, pathCtx = { type: 'album' }) {
     const stream = await tidalApi.getStreamUrl(reqShim, noopRes, track.id, quality);
-    const finalPath = getTrackPath(track, stream, album);
+    const finalPath =
+      pathCtx.type === 'single'
+        ? getSingleTrackPath(track, stream)
+        : pathCtx.type === 'playlist'
+          ? getPlaylistTrackPath(track, stream, pathCtx.playlistTitle)
+          : getTrackPath(track, stream, album);
     const partPath = finalPath + '.part';
 
     await this._downloadSegments(stream.urls, partPath, (progress) => {
