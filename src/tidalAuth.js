@@ -7,6 +7,7 @@ const SESSION_COOKIE = 'tidal_session';
 const SCOPE = 'r_usr+w_usr+w_sub';
 
 let pendingFlow = null;
+let currentSession = null;
 
 async function postForm(path, data, clientId, clientSecret) {
   const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
@@ -24,11 +25,12 @@ async function postForm(path, data, clientId, clientSecret) {
 
 async function startDeviceLogin() {
   const key = getBestKey();
-  const { ok, data } = await postForm('/device_authorization', {
+  const { ok, status, data } = await postForm('/device_authorization', {
     client_id: key.clientId,
     scope: SCOPE,
   });
   if (!ok || !data.deviceCode) {
+    console.error('Tidal device_authorization failed:', status, JSON.stringify(data));
     throw new Error('Device authorization failed. Tidal rejected the client key.');
   }
 
@@ -69,8 +71,9 @@ async function pollDeviceLogin() {
 
   if (!ok) {
     if (status === 400 && Number(data.sub_status) === 1002) return { done: false };
+    console.error('Tidal device token exchange failed:', status, JSON.stringify(data));
     pendingFlow = null;
-    throw new Error(data.error_description || 'Login failed.');
+    throw new Error(data.error_description || data.error || 'Login failed.');
   }
 
   const { clientId, clientSecret } = pendingFlow;
@@ -104,7 +107,10 @@ async function refreshAccessToken(session) {
     clientId,
     clientSecret,
   );
-  if (!ok) return null;
+  if (!ok) {
+    console.error('Tidal refresh_token grant failed:', data.error, data.error_description || '');
+    return null;
+  }
   return {
     userId: data.user?.userId,
     email: data.user?.email,
@@ -116,7 +122,8 @@ async function refreshAccessToken(session) {
 }
 
 function buildSessionCookie(res, session) {
-  const token = jwt.sign(session, JWT_SECRET, { expiresIn: '30d' });
+  currentSession = { ...currentSession, ...session };
+  const token = jwt.sign(currentSession, JWT_SECRET, { expiresIn: '30d' });
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
@@ -125,16 +132,20 @@ function buildSessionCookie(res, session) {
 }
 
 function readSession(req) {
+  if (currentSession) return currentSession;
+
   const token = req.cookies?.[SESSION_COOKIE];
   if (!token) return null;
   try {
-    return jwt.verify(token, JWT_SECRET);
+    currentSession = jwt.verify(token, JWT_SECRET);
+    return currentSession;
   } catch {
     return null;
   }
 }
 
 function clearSession(res) {
+  currentSession = null;
   res.clearCookie(SESSION_COOKIE);
 }
 

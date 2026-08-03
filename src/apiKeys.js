@@ -50,13 +50,17 @@ function getKeys() {
   return apiKeys.keys;
 }
 
+function isValid(key) {
+  return key.valid === true || String(key.valid).toLowerCase() === 'true';
+}
+
 function getBestKey() {
   const keys = apiKeys.keys;
-  const fullyCapable = keys.find((k) => k.valid && /normal/i.test(k.formats) && /master/i.test(k.formats));
+  const fullyCapable = keys.find((k) => isValid(k) && /normal/i.test(k.formats) && /master/i.test(k.formats));
   if (fullyCapable) return fullyCapable;
-  const masterCapable = keys.find((k) => k.valid && /master/i.test(k.formats));
+  const masterCapable = keys.find((k) => isValid(k) && /master/i.test(k.formats));
   if (masterCapable) return masterCapable;
-  const anyValid = keys.find((k) => k.valid);
+  const anyValid = keys.find((k) => isValid(k));
   return anyValid || keys[0];
 }
 

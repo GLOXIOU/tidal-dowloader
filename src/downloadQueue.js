@@ -34,43 +34,54 @@ class DownloadQueue extends EventEmitter {
 
     if (resolved.type === 'track') {
       const album = await tidalApi.getAlbum(reqShim, noopRes, resolved.data.album.id);
-      return [this._push(reqShim, resolved.data, album, quality)];
+      return [this._pushTrack(reqShim, resolved.data, album, quality)];
     }
 
-    if (resolved.type === 'album') {
-      const { tracks } = await tidalApi.getItems(reqShim, noopRes, resolved.data.id, 'album');
-      return tracks.map((t, i) => {
-        t.trackNumberOnPlaylist = i + 1;
-        return this._push(reqShim, t, resolved.data, quality);
-      });
-    }
-
-    if (resolved.type === 'playlist') {
-      const { tracks } = await tidalApi.getItems(reqShim, noopRes, resolved.data.uuid, 'playlist');
-      const ids = [];
-      for (let i = 0; i < tracks.length; i++) {
-        const t = tracks[i];
-        t.trackNumberOnPlaylist = i + 1;
-        const album = await tidalApi.getAlbum(reqShim, noopRes, t.album.id);
-        ids.push(this._push(reqShim, t, album, quality));
-      }
-      return ids;
+    if (resolved.type === 'album' || resolved.type === 'playlist') {
+      return [await this._pushBatch(reqShim, resolved, quality)];
     }
 
     throw new Error(`Type non téléchargeable: ${resolved.type}`);
   }
 
-  _push(reqShim, track, album, quality) {
+  _pushTrack(reqShim, track, album, quality) {
     const item = {
       id: ++this._seq,
+      kind: 'track',
       title: track.version ? `${track.title} (${track.version})` : track.title,
-      artist: track.artists?.[0]?.name || track.artist?.name || '',
+      sub: track.artists?.[0]?.name || track.artist?.name || '',
+      cover: album?.cover || null,
       status: 'queued',
       progress: 0,
       error: null,
       path: null,
     };
-    item.task = () => this._downloadTrack(reqShim, item, track, album, quality);
+    item.task = () => this._downloadOneTrack(reqShim, item, track, album, quality);
+    this.items.unshift(item);
+    this._emitUpdate(item);
+    this._schedule();
+    return item.id;
+  }
+
+  async _pushBatch(reqShim, resolved, quality) {
+    const isPlaylist = resolved.type === 'playlist';
+    const listId = isPlaylist ? resolved.data.uuid : resolved.data.id;
+    const { tracks } = await tidalApi.getItems(reqShim, noopRes, listId, isPlaylist ? 'playlist' : 'album');
+
+    const item = {
+      id: ++this._seq,
+      kind: 'batch',
+      title: resolved.data.title,
+      sub: `0/${tracks.length} titres`,
+      cover: isPlaylist ? resolved.data.squareImage || resolved.data.image : resolved.data.cover,
+      status: 'queued',
+      progress: 0,
+      total: tracks.length,
+      doneCount: 0,
+      error: null,
+      path: null,
+    };
+    item.task = () => this._downloadBatch(reqShim, item, tracks, resolved.data, isPlaylist, quality);
     this.items.unshift(item);
     this._emitUpdate(item);
     this._schedule();
@@ -97,19 +108,50 @@ class DownloadQueue extends EventEmitter {
     }
   }
 
-  async _downloadTrack(reqShim, item, track, album, quality) {
+  async _downloadBatch(reqShim, item, tracks, listData, isPlaylist, quality) {
+    let done = 0;
+    let lastError = null;
+
+    for (let i = 0; i < tracks.length; i++) {
+      const track = tracks[i];
+      track.trackNumberOnPlaylist = i + 1;
+      try {
+        const album = isPlaylist ? await tidalApi.getAlbum(reqShim, noopRes, track.album.id) : listData;
+        await this._downloadOneTrack(reqShim, null, track, album, quality);
+        done++;
+      } catch (err) {
+        lastError = err;
+      }
+      item.doneCount = done;
+      item.progress = Math.round((done / tracks.length) * 100);
+      item.sub = `${done}/${tracks.length} titres`;
+      this._emitUpdate(item);
+    }
+
+    if (done === 0) throw lastError || new Error("Aucun titre n'a pu être téléchargé.");
+
+    item.status = 'done';
+    item.progress = 100;
+    if (done < tracks.length) item.error = `${tracks.length - done} titre(s) n'ont pas pu être téléchargés.`;
+    this._emitUpdate(item);
+  }
+
+  async _downloadOneTrack(reqShim, item, track, album, quality) {
     const stream = await tidalApi.getStreamUrl(reqShim, noopRes, track.id, quality);
     const finalPath = getTrackPath(track, stream, album);
     const partPath = finalPath + '.part';
 
     await this._downloadSegments(stream.urls, partPath, (progress) => {
+      if (!item) return;
       item.progress = progress;
       this._emitUpdate(item);
     });
 
     if (stream.encryptionKey) {
-      item.status = 'decrypting';
-      this._emitUpdate(item);
+      if (item) {
+        item.status = 'decrypting';
+        this._emitUpdate(item);
+      }
       const { key, nonce } = decryptSecurityToken(stream.encryptionKey);
       await decryptFile(partPath, finalPath, key, nonce);
       fs.unlinkSync(partPath);
@@ -117,8 +159,10 @@ class DownloadQueue extends EventEmitter {
       fs.renameSync(partPath, finalPath);
     }
 
-    item.status = 'tagging';
-    this._emitUpdate(item);
+    if (item) {
+      item.status = 'tagging';
+      this._emitUpdate(item);
+    }
 
     let contributors = null;
     try {
@@ -154,10 +198,12 @@ class DownloadQueue extends EventEmitter {
       year: album.releaseDate ? Number(String(album.releaseDate).slice(0, 4)) : undefined,
     });
 
-    item.status = 'done';
-    item.progress = 100;
-    item.path = finalPath;
-    this._emitUpdate(item);
+    if (item) {
+      item.status = 'done';
+      item.progress = 100;
+      item.path = finalPath;
+      this._emitUpdate(item);
+    }
   }
 
   async _downloadSegments(urls, destPath, onProgress) {

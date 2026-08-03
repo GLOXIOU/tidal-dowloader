@@ -275,13 +275,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
       queueItems.set(item.id, el);
       queueContainer.prepend(el);
+      el.querySelector('.queue-item-image').innerHTML = imgTag(coverUrl(item.cover));
     }
 
     const emptyState = queueContainer.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
 
     el.querySelector('.queue-item-title').textContent = item.title;
-    el.querySelector('.queue-item-sub').textContent = item.error || item.artist || '';
+    el.querySelector('.queue-item-sub').textContent = item.error || item.sub || '';
     el.querySelector('.progress-fill').style.width = `${item.progress || 0}%`;
     const statusEl = el.querySelector('.queue-item-status');
     statusEl.className = `queue-item-status ${item.status}`;
