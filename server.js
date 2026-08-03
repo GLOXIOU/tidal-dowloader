@@ -60,7 +60,7 @@ app.get('/auth/tidal/poll', async (req, res) => {
     buildSessionCookie(res, result.session);
     res.json({ done: true });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: err.message, code: err.code });
   }
 });
 

@@ -51,10 +51,16 @@ async function startDeviceLogin() {
 }
 
 async function pollDeviceLogin() {
-  if (!pendingFlow) throw new Error('No pending login. Start one first.');
+  if (!pendingFlow) {
+    const err = new Error('No pending login. Start one first.');
+    err.code = 'NO_PENDING_LOGIN';
+    throw err;
+  }
   if (Date.now() > pendingFlow.expiresAt) {
     pendingFlow = null;
-    throw new Error('Login code expired, please try again.');
+    const err = new Error('Login code expired, please try again.');
+    err.code = 'LOGIN_EXPIRED';
+    throw err;
   }
 
   const { ok, status, data } = await postForm(

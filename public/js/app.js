@@ -44,27 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  async function pollLogin() {
-    try {
-      const res = await fetch('/auth/tidal/poll');
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        loginModal.classList.remove('active');
-        if (typeof showToast === 'function') showToast(data.error || 'Connexion échouée.', 'error');
-        return;
-      }
-      if (data.done) {
-        loginModal.classList.remove('active');
-        checkSession();
-        return;
-      }
-      setTimeout(pollLogin, 2500);
-    } catch {
-      setTimeout(pollLogin, 2500);
-    }
-  }
-
-  loginBtn?.addEventListener('click', async () => {
+  async function startLogin(restartAttempts = 0) {
     try {
       const res = await fetch('/auth/tidal/login', { method: 'POST' });
       const data = await res.json();
@@ -75,11 +55,38 @@ document.addEventListener('DOMContentLoaded', async () => {
       deviceCode.textContent = data.userCode;
       loginModal.classList.add('active');
 
-      setTimeout(pollLogin, (data.interval || 2) * 1000);
+      setTimeout(() => pollLogin(restartAttempts), (data.interval || 2) * 1000);
     } catch (err) {
       if (typeof showToast === 'function') showToast(err.message, 'error');
+      if (restartAttempts === 0) loginModal.classList.remove('active');
     }
-  });
+  }
+
+  async function pollLogin(restartAttempts) {
+    try {
+      const res = await fetch('/auth/tidal/poll');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.code === 'NO_PENDING_LOGIN' && restartAttempts < 3) {
+          startLogin(restartAttempts + 1);
+          return;
+        }
+        loginModal.classList.remove('active');
+        if (typeof showToast === 'function') showToast(data.error || 'Connexion échouée.', 'error');
+        return;
+      }
+      if (data.done) {
+        loginModal.classList.remove('active');
+        checkSession();
+        return;
+      }
+      setTimeout(() => pollLogin(restartAttempts), 2500);
+    } catch {
+      setTimeout(() => pollLogin(restartAttempts), 2500);
+    }
+  }
+
+  loginBtn?.addEventListener('click', () => startLogin());
 
   logoutBtn?.addEventListener('click', async () => {
     try {
