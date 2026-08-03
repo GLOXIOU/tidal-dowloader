@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>tidal-dowloader</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/toast.css" />
+</head>
+<body>
+    <main class="main-wrapper">
+        <div id="login-section" class="login-section" style="display: none;">
+            <h1 class="hero-title">tidal-dowloader</h1>
+            <p class="hero-subtitle">Cherche un titre, colle un lien Tidal, télécharge-le en quelques secondes.</p>
+            <button id="login-btn" class="tidal-login-btn" type="button">Se connecter avec Tidal</button>
+        </div>
+
+        <div id="dashboard-section" class="dashboard-section" style="display: none;">
+            <h1 class="hero-title">tidal-dowloader</h1>
+
+            <div class="profile-card">
+                <span class="profile-email">Compte Tidal connecté</span>
+                <button class="logout-btn">Déconnexion</button>
+            </div>
+
+            <div class="search-area">
+                <div class="input-container">
+                    <input type="text" id="link-input" placeholder="Cherche un titre, ou colle un lien tidal.com..." />
+                </div>
+                <select id="quality-select">
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="hifi" selected>HiFi (FLAC)</option>
+                    <option value="max">Max</option>
+                </select>
+            </div>
+
+            <div id="results-container" class="results-container"></div>
+
+            <div class="section-heading">Téléchargements</div>
+            <div id="queue-container" class="queue-container">
+                <div class="empty-state">Rien pour l'instant. Cherche ou colle un lien ci-dessus.</div>
+            </div>
+        </div>
+    </main>
+
+    <div id="login-modal" class="add-modal">
+        <div class="add-modal-content">
+            <div class="add-modal-icon"><div class="loading-icon"></div></div>
+            <h2 class="add-modal-title">Connexion à Tidal</h2>
+            <p class="add-modal-message">Ouvre <a id="device-link" class="device-link" href="#" target="_blank" rel="noopener">ce lien</a> et entre le code :</p>
+            <div id="device-code" class="device-code"></div>
+        </div>
+    </div>
+
+    <script src="/js/toast.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

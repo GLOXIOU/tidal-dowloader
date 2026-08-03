@@ -1,0 +1,23 @@
+tidal-dowloader
+Copyright the tidal-dowloader contributors
+
+This product is a Node.js/Express re-implementation of parts of
+"Tidal-Media-Downloader" (https://github.com/yaronzz/Tidal-Media-Downloader),
+Copyright Yaron Huang (yaronzz), licensed under the Apache License, Version 2.0.
+The download/decrypt/tagging pipeline, the Tidal API client, and the OAuth2
+device-code login flow are ported from that project's Python source.
+
+That project itself credits, for the pieces this app also relies on:
+- Decryption routine: adapted from "RedSea" (https://github.com/redsudo/RedSea).
+- Reverse-engineered OAuth2 device-flow client identifiers:
+  - Fokka-Engineering / libopenTIDAL
+    (https://github.com/Fokka-Engineering/libopenTIDAL)
+  - Dniel97 / RedSea
+    (https://github.com/Dniel97/RedSea)
+  - morguldir / python-tidal
+    (https://github.com/morguldir/python-tidal)
+  - 1nikolas (via https://github.com/yaronzz/Tidal-Media-Downloader/pull/840)
+- aigpy (https://github.com/yaronzz/AIGPY) and python-tidal
+  (https://github.com/tamland/python-tidal) as general references.
+
+See the LICENSE file for the full Apache License 2.0 text.
