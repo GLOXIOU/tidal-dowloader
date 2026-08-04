@@ -159,7 +159,8 @@ async function refreshAccessToken(session) {
 
 function buildSessionCookie(res, session) {
   currentSession = { ...currentSession, ...session };
-  const token = jwt.sign(currentSession, JWT_SECRET, { expiresIn: '30d' });
+  const { exp, iat, nbf, ...cleanSession } = currentSession;
+  const token = jwt.sign(cleanSession, JWT_SECRET, { expiresIn: '30d' });
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
