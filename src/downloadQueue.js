@@ -5,8 +5,27 @@ const { decryptSecurityToken, decryptFile } = require('./decryption');
 const { writeTrackTags } = require('./tags');
 const { getTrackPath, getSingleTrackPath, getPlaylistTrackPath } = require('./paths');
 
-const MAX_CONCURRENT = 3;
+const MAX_CONCURRENT = 3; // items de la queue (morceaux seuls / batches) en parallèle
+const TRACKS_PER_BATCH_CONCURRENT = 3; // morceaux en parallèle à l'intérieur d'une playlist/album
+const SEGMENTS_CONCURRENT = 6; // segments audio en parallèle par morceau
+
 const noopRes = { cookie() {}, clearCookie() {} };
+
+/**
+ * Exécute `tasks.length` jobs avec au plus `limit` en vol simultanément.
+ * `worker(index)` doit gérer lui-même les erreurs qu'il ne veut pas propager.
+ */
+async function runPool(count, limit, worker) {
+  let idx = 0;
+  const size = Math.max(1, Math.min(limit, count));
+  const runners = Array.from({ length: size }, async () => {
+    while (idx < count) {
+      const my = idx++;
+      await worker(my);
+    }
+  });
+  await Promise.all(runners);
+}
 
 class DownloadQueue extends EventEmitter {
   constructor() {
@@ -113,7 +132,8 @@ class DownloadQueue extends EventEmitter {
     let lastError = null;
     const pathCtx = isPlaylist ? { type: 'playlist', playlistTitle: listData.title } : { type: 'album' };
 
-    for (let i = 0; i < tracks.length; i++) {
+    // Plusieurs morceaux du batch en parallèle, au lieu d'un par un.
+    await runPool(tracks.length, TRACKS_PER_BATCH_CONCURRENT, async (i) => {
       const track = tracks[i];
       track.trackNumberOnPlaylist = i + 1;
       try {
@@ -127,7 +147,7 @@ class DownloadQueue extends EventEmitter {
       item.progress = Math.round((done / tracks.length) * 100);
       item.sub = `${done}/${tracks.length} titres`;
       this._emitUpdate(item);
-    }
+    });
 
     if (done === 0) throw lastError || new Error("Aucun titre n'a pu être téléchargé.");
 
@@ -170,19 +190,16 @@ class DownloadQueue extends EventEmitter {
       this._emitUpdate(item);
     }
 
-    let contributors = null;
-    try {
-      contributors = await tidalApi.getTrackContributors(reqShim, noopRes, track.id);
-    } catch {
-      contributors = null;
-    }
-    let lyrics = null;
-    try {
-      lyrics = (await tidalApi.getLyrics(reqShim, noopRes, track.id))?.subtitles || null;
-    } catch {
-      lyrics = null;
-    }
-    const coverBuffer = await tidalApi.getCoverData(album.cover);
+    // Contributeurs, paroles et cover sont indépendants : on les récupère en parallèle
+    // plutôt que d'attendre chacun l'un après l'autre.
+    const [contributors, lyrics, coverBuffer] = await Promise.all([
+      tidalApi.getTrackContributors(reqShim, noopRes, track.id).catch(() => null),
+      tidalApi
+        .getLyrics(reqShim, noopRes, track.id)
+        .then((res) => res?.subtitles || null)
+        .catch(() => null),
+      tidalApi.getCoverData(album.cover),
+    ]);
 
     const composers = (contributors?.items || []).filter((c) => c.role === 'Composer').map((c) => c.name);
 
@@ -214,16 +231,43 @@ class DownloadQueue extends EventEmitter {
 
   async _downloadSegments(urls, destPath, onProgress) {
     const out = fs.createWriteStream(destPath);
+    let writeError = null;
+    out.on('error', (err) => {
+      writeError = err;
+    });
+
     try {
-      let done = 0;
-      for (const url of urls) {
-        const res = await fetch(url);
+      let doneCount = 0;
+      let nextToWrite = 0;
+      const pending = new Map();
+
+      // Écrit sur disque, dans l'ordre, tous les segments déjà téléchargés
+      // qui font suite au dernier écrit (les segments peuvent finir dans le désordre
+      // puisqu'ils sont fetchés en parallèle).
+      const flushReady = async () => {
+        while (pending.has(nextToWrite)) {
+          if (writeError) throw writeError;
+          const buf = pending.get(nextToWrite);
+          pending.delete(nextToWrite);
+          const canContinue = out.write(buf);
+          if (!canContinue) {
+            await new Promise((resolve) => out.once('drain', resolve));
+          }
+          nextToWrite++;
+          doneCount++;
+          onProgress(Math.round((doneCount / urls.length) * 100));
+        }
+      };
+
+      await runPool(urls.length, SEGMENTS_CONCURRENT, async (i) => {
+        const res = await fetch(urls[i]);
         if (!res.ok) throw new Error(`Download failed (HTTP ${res.status})`);
         const buf = Buffer.from(await res.arrayBuffer());
-        await new Promise((resolve, reject) => out.write(buf, (err) => (err ? reject(err) : resolve())));
-        done++;
-        onProgress(Math.round((done / urls.length) * 100));
-      }
+        pending.set(i, buf);
+        await flushReady();
+      });
+
+      if (writeError) throw writeError;
     } finally {
       await new Promise((resolve) => out.end(resolve));
     }
