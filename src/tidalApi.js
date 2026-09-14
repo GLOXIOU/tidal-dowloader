@@ -6,7 +6,6 @@ const LISTEN_BASE = 'https://listen.tidal.com/v1/';
 const RESOURCES_BASE = 'https://resources.tidal.com/images/';
 
 const Type = ['album', 'track', 'video', 'playlist', 'artist', 'mix'];
-
 async function withAutoRefresh(req, res, fn) {
   try {
     return await fn(req.tidal);
@@ -20,7 +19,6 @@ async function withAutoRefresh(req, res, fn) {
       e.needReconnect = true;
       throw e;
     }
-
     req.tidal = { ...req.tidal, ...refreshed };
     buildSessionCookie(res, req.tidal);
     return await fn(req.tidal);
@@ -31,7 +29,6 @@ async function apiGet(session, path, params = {}, urlpre = API_BASE) {
   const url = new URL(urlpre + path);
   url.searchParams.set('countryCode', session.countryCode);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${session.accessToken}` } });
 
@@ -45,7 +42,6 @@ async function apiGet(session, path, params = {}, urlpre = API_BASE) {
       err.status = 401;
       throw err;
     }
-
     const data = await res.json().catch(() => ({}));
     if (data && data.status && data.status !== 200) {
       const err = new Error(data.userMessage || `Tidal error ${data.status}`);
@@ -56,7 +52,6 @@ async function apiGet(session, path, params = {}, urlpre = API_BASE) {
   }
   throw new Error('Too many requests, please retry.');
 }
-
 async function apiGetAllItems(session, path, extraParams = {}) {
   const limit = 50;
   let offset = 0;
@@ -72,13 +67,11 @@ async function apiGetAllItems(session, path, extraParams = {}) {
   }
   return out;
 }
-
 function search(req, res, query, { offset = 0, limit = 10 } = {}) {
   return withAutoRefresh(req, res, (session) =>
     apiGet(session, 'search', { query, offset, limit, types: 'ARTISTS,ALBUMS,TRACKS,VIDEOS,PLAYLISTS' }),
   );
 }
-
 function parseUrl(rawUrl) {
   if (!rawUrl.includes('tidal.com')) return { type: null, id: rawUrl };
   const url = rawUrl.toLowerCase();
@@ -92,7 +85,6 @@ function parseUrl(rawUrl) {
   }
   return { type: null, id: rawUrl };
 }
-
 function getAlbum(req, res, id) {
   return withAutoRefresh(req, res, (session) => apiGet(session, `albums/${id}`));
 }
@@ -108,20 +100,17 @@ function getVideo(req, res, id) {
 function getPlaylist(req, res, id) {
   return withAutoRefresh(req, res, (session) => apiGet(session, `playlists/${id}`));
 }
-
 function getUserPlaylists(req, res) {
   return withAutoRefresh(req, res, (session) =>
     apiGetAllItems(session, `users/${session.userId}/playlists`),
   );
 }
-
 async function getItems(req, res, id, type) {
   let data;
   if (type === 'playlist') data = await withAutoRefresh(req, res, (s) => apiGetAllItems(s, `playlists/${id}/items`));
   else if (type === 'album') data = await withAutoRefresh(req, res, (s) => apiGetAllItems(s, `albums/${id}/items`));
   else if (type === 'mix') data = await withAutoRefresh(req, res, (s) => apiGetAllItems(s, `mixes/${id}/items`));
   else throw new Error('invalid type');
-
   const tracks = [];
   const videos = [];
   for (const item of data) {
@@ -130,7 +119,6 @@ async function getItems(req, res, id, type) {
   }
   return { tracks, videos };
 }
-
 async function getByUrl(req, res, rawUrl) {
   const { type, id } = parseUrl(rawUrl);
   if (!type) throw new Error('Lien Tidal non reconnu.');
@@ -141,7 +129,6 @@ async function getByUrl(req, res, rawUrl) {
   if (type === 'artist') return { type, data: await getArtist(req, res, id) };
   throw new Error(`Type de lien non supporté: ${type}`);
 }
-
 const AUDIO_QUALITY = { normal: 'LOW', high: 'HIGH', hifi: 'LOSSLESS', max: 'HI_RES_LOSSLESS' };
 
 const mpdParser = new XMLParser({
@@ -155,7 +142,6 @@ function parseMpd(xml) {
   const doc = mpdParser.parse(cleaned);
   const periods = doc.MPD?.Period || [];
   const tracks = [];
-
   for (const period of periods) {
     for (const adaptationSet of period.AdaptationSet || []) {
       if (adaptationSet.contentType !== 'audio') {
@@ -165,7 +151,6 @@ function parseMpd(xml) {
         const segTemplate = rep.SegmentTemplate;
         const trackUrls = [segTemplate.initialization];
         const startNumber = parseInt(segTemplate.startNumber || '1', 10);
-
         const segTimeline = segTemplate.SegmentTimeline;
         if (segTimeline) {
           const sList = segTimeline.S || [];
@@ -189,7 +174,6 @@ function parseMpd(xml) {
   }
   return tracks;
 }
-
 function getSub(text, start, end) {
   const from = text.indexOf(start);
   if (from === -1) return '';
@@ -197,7 +181,6 @@ function getSub(text, start, end) {
   const to = rest.indexOf(end);
   return to === -1 ? rest : rest.slice(0, to);
 }
-
 async function getResolutionList(masterUrl) {
   const txt = await (await fetch(masterUrl)).text();
   const chunks = txt.split('#');
@@ -213,7 +196,6 @@ async function getResolutionList(masterUrl) {
   }
   return out;
 }
-
 async function getStreamUrl(req, res, trackId, quality = 'hifi') {
   return withAutoRefresh(req, res, async (session) => {
     const params = {
@@ -222,7 +204,6 @@ async function getStreamUrl(req, res, trackId, quality = 'hifi') {
       assetpresentation: 'FULL',
     };
     const resp = await apiGet(session, `tracks/${trackId}/playbackinfopostpaywall`, params);
-
     if (resp.manifestMimeType?.includes('vnd.tidal.bt')) {
       const manifest = JSON.parse(Buffer.from(resp.manifest, 'base64').toString('utf-8'));
       const url = manifest.urls[0];
@@ -251,12 +232,10 @@ async function getStreamUrl(req, res, trackId, quality = 'hifi') {
     throw new Error(`Can't get the stream URL, type is ${resp.manifestMimeType}`);
   });
 }
-
 async function getVideoStreamUrl(req, res, videoId, minHeight = 1080) {
   return withAutoRefresh(req, res, async (session) => {
     const params = { videoquality: 'HIGH', playbackmode: 'STREAM', assetpresentation: 'FULL' };
     const resp = await apiGet(session, `videos/${videoId}/playbackinfopostpaywall`, params);
-
     if (!resp.manifestMimeType?.includes('vnd.tidal.emu')) {
       throw new Error(`Can't get the stream URL, type is ${resp.manifestMimeType}`);
     }
@@ -265,7 +244,6 @@ async function getVideoStreamUrl(req, res, videoId, minHeight = 1080) {
     return variants.find((v) => v.height >= minHeight) || variants[variants.length - 1];
   });
 }
-
 function getTrackContributors(req, res, id) {
   return withAutoRefresh(req, res, (session) => apiGet(session, `tracks/${id}/contributors`));
 }
@@ -282,7 +260,6 @@ function getCoverUrl(sid, width = '1280', height = '1280') {
   if (!sid) return null;
   return `${RESOURCES_BASE}${sid.replace(/-/g, '/')}/${width}x${height}.jpg`;
 }
-
 async function getCoverData(sid, width = '1280', height = '1280') {
   const url = getCoverUrl(sid, width, height);
   if (!url) return null;
@@ -297,6 +274,40 @@ async function getCoverData(sid, width = '1280', height = '1280') {
 
 function getArtistsName(artists = []) {
   return artists.map((a) => a.name).join(', ');
+}
+
+const ESTIMATED_BITRATES = {
+  normal: 96_000,
+  high: 320_000,
+  hifi: 900_000,
+  max: 3_000_000,
+};
+
+function estimateBytesFromDuration(duration, quality) {
+  const bitrate = ESTIMATED_BITRATES[quality] || ESTIMATED_BITRATES.hifi;
+  return Math.max(0, Number(duration) || 0) * bitrate / 8;
+}
+
+async function estimatePlaylistSize(req, res, id, quality = 'hifi') {
+  return withAutoRefresh(req, res, async (session) => {
+    const data = await apiGetAllItems(session, `playlists/${id}/items`);
+    const tracks = data
+      .filter((item) => item.type === 'track' && item.item?.streamReady)
+      .map((item) => item.item);
+    const estimatedBytes = tracks.reduce(
+      (total, track) => total + estimateBytesFromDuration(track.duration, quality),
+      0,
+    );
+
+    return {
+      playlistId: id,
+      quality,
+      trackCount: tracks.length,
+      totalDuration: tracks.reduce((total, track) => total + (Number(track.duration) || 0), 0),
+      estimatedBytes: Math.round(estimatedBytes),
+      estimatedMegabytes: Math.round(estimatedBytes / 1024 / 1024 * 10) / 10,
+    };
+  });
 }
 
 module.exports = {
@@ -321,4 +332,5 @@ module.exports = {
   getCoverData,
   getArtistsName,
   parseMpd,
+  estimatePlaylistSize,
 };

@@ -12,9 +12,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const loginModal = document.getElementById('login-modal');
   const deviceLink = document.getElementById('device-link');
   const deviceCode = document.getElementById('device-code');
-
   let eventSource = null;
   const queueItems = new Map();
+  const playlistEstimates = new Map();
+  let loadedPlaylists = [];
 
   function showDashboard(email) {
     profileEmail.textContent = email || 'Compte Tidal connecté';
@@ -32,7 +33,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       eventSource = null;
     }
   }
-
   async function checkSession() {
     try {
       const res = await fetch('/api/session');
@@ -43,7 +43,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       showLogin();
     }
   }
-
   async function startLogin(restartAttempts = 0) {
     try {
       const res = await fetch('/auth/tidal/login', { method: 'POST' });
@@ -54,14 +53,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       deviceLink.textContent = data.verificationUrl.replace(/^https?:\/\//, '');
       deviceCode.textContent = data.userCode;
       loginModal.classList.add('active');
-
       setTimeout(() => pollLogin(restartAttempts), (data.interval || 2) * 1000);
     } catch (err) {
       if (typeof showToast === 'function') showToast(err.message, 'error');
       if (restartAttempts === 0) loginModal.classList.remove('active');
     }
   }
-
   async function pollLogin(restartAttempts) {
     try {
       const res = await fetch('/auth/tidal/poll');
@@ -92,7 +89,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       setTimeout(() => pollLogin(restartAttempts), 2500);
     }
   }
-
   loginBtn?.addEventListener('click', () => startLogin());
 
   logoutBtn?.addEventListener('click', async () => {
@@ -107,7 +103,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!cover) return '';
     return `https://resources.tidal.com/images/${cover.replace(/-/g, '/')}/${size}x${size}.jpg`;
   }
-
   function coverIdFor(type, item) {
     if (type === 'track' || type === 'video') return item.album?.cover;
     if (type === 'album') return item.cover;
@@ -120,7 +115,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!cover) return '';
     return `<img src="${cover}" alt="" onerror="this.remove()">`;
   }
-
   function renderCard(outerClass, prefix, { title, sub, cover }) {
     const card = document.createElement('div');
     card.className = outerClass;
@@ -135,7 +129,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     card.querySelector(`.${prefix}-sub`).textContent = sub || '';
     return card;
   }
-
   function downloadButton(type, id) {
     const btn = document.createElement('button');
     btn.className = 'download-btn';
@@ -147,7 +140,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     return btn;
   }
-
   async function downloadItem(type, id) {
     try {
       const res = await fetch('/api/download', {
@@ -162,7 +154,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (typeof showToast === 'function') showToast(err.message, 'error');
     }
   }
-
   function renderSearchResults(data) {
     resultsContainer.innerHTML = '';
     const groups = [
@@ -191,7 +182,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (!any) resultsContainer.innerHTML = '<div class="empty-state">Aucun résultat.</div>';
   }
-
   function renderPreview(resolved) {
     resultsContainer.innerHTML = '';
     const { type, data } = resolved;
@@ -199,7 +189,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sub = type === 'playlist'
       ? `${data.numberOfTracks || 0} titres`
       : (data.artists || [data.artist]).filter(Boolean).map((a) => a.name).join(', ');
-
     const card = renderCard('result-card', 'result', { title: data.title, sub, cover: coverUrl(coverIdFor(type, data)) });
     const chip = document.createElement('span');
     chip.className = 'result-type-chip';
@@ -213,12 +202,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   linkInput?.addEventListener('input', (e) => {
     const val = e.target.value.trim();
     clearTimeout(debounceTimer);
-
     if (!val) {
       resultsContainer.innerHTML = '';
       return;
     }
-
     debounceTimer = setTimeout(async () => {
       try {
         if (val.includes('tidal.com')) {
@@ -242,19 +229,72 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 400);
   });
 
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 octet';
+    const units = ['octets', 'Ko', 'Mo', 'Go', 'To'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(digits)} ${units[unit]}`;
+  }
+
+  function formatDuration(seconds) {
+    const total = Math.max(0, Number(seconds) || 0);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (hours) return `${hours} h ${minutes}`;
+    return `${minutes} min`;
+  }
+
+  async function fetchPlaylistEstimate(pl, quality) {
+    const key = `${pl.uuid}:${quality}`;
+    if (playlistEstimates.has(key)) return playlistEstimates.get(key);
+    const promise = fetch(`/api/playlists/${encodeURIComponent(pl.uuid)}/estimate?quality=${encodeURIComponent(quality)}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Estimation impossible.');
+        return data;
+      })
+      .catch((err) => {
+        playlistEstimates.delete(key);
+        throw err;
+      });
+    playlistEstimates.set(key, promise);
+    return promise;
+  }
+
+  async function refreshPlaylistEstimates(playlists) {
+    const quality = qualitySelect?.value || 'hifi';
+    await Promise.all(playlists.map(async (pl) => {
+      const card = [...playlistsContainer.querySelectorAll('[data-playlist-id]')]
+        .find((element) => element.dataset.playlistId === String(pl.uuid));
+      const estimateEl = card?.querySelector('.playlist-estimate');
+      if (!estimateEl) return;
+      try {
+        const data = await fetchPlaylistEstimate(pl, quality);
+        estimateEl.textContent = `${formatBytes(data.estimatedBytes)} · ${formatDuration(data.totalDuration)}`;
+      } catch {
+        estimateEl.textContent = 'Estimation indisponible';
+      }
+    }));
+  }
+
   async function fetchPlaylists() {
     playlistsContainer.innerHTML = '<div class="empty-state">Chargement de tes playlists...</div>';
     try {
       const res = await fetch('/api/playlists');
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Impossible de charger tes playlists.');
-
       const playlists = data.playlists || [];
+      loadedPlaylists = playlists;
       if (!playlists.length) {
         playlistsContainer.innerHTML = '<div class="empty-state">Aucune playlist trouvée sur ton compte Tidal.</div>';
         return;
       }
-
       const grid = document.createElement('div');
       grid.className = 'playlists-grid';
       for (const pl of playlists) {
@@ -263,15 +303,31 @@ document.addEventListener('DOMContentLoaded', async () => {
           sub: `${pl.numberOfTracks || 0} titres`,
           cover: coverUrl(coverIdFor('playlist', pl)),
         });
+        card.dataset.playlistId = pl.uuid;
+        const estimate = document.createElement('div');
+        estimate.className = 'playlist-sub playlist-estimate';
+        estimate.textContent = 'Estimation : calcul...';
+        card.querySelector('.playlist-info').appendChild(estimate);
         card.appendChild(downloadButton('playlist', pl.uuid));
         grid.appendChild(card);
       }
       playlistsContainer.innerHTML = '';
       playlistsContainer.appendChild(grid);
+      refreshPlaylistEstimates(playlists);
     } catch (err) {
       playlistsContainer.innerHTML = `<div class="empty-state">${err.message}</div>`;
     }
   }
+
+  qualitySelect?.addEventListener('change', () => {
+    const cards = playlistsContainer.querySelectorAll('[data-playlist-id]');
+    if (!cards.length) return;
+    cards.forEach((card) => {
+      const estimateEl = card.querySelector('.playlist-estimate');
+      if (estimateEl) estimateEl.textContent = 'Calcul...';
+    });
+    refreshPlaylistEstimates(loadedPlaylists);
+  });
 
   function renderQueueItem(item) {
     let el = queueItems.get(item.id);
@@ -291,10 +347,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       queueContainer.prepend(el);
       el.querySelector('.queue-item-image').innerHTML = imgTag(coverUrl(item.cover));
     }
-
     const emptyState = queueContainer.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
-
     el.querySelector('.queue-item-title').textContent = item.title;
     el.querySelector('.queue-item-sub').textContent = item.error || item.sub || '';
     el.querySelector('.progress-fill').style.width = `${item.progress || 0}%`;
@@ -309,7 +363,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       error: 'Erreur',
     }[item.status] || item.status;
   }
-
   function connectQueueStream() {
     if (eventSource) eventSource.close();
     eventSource = new EventSource('/api/queue/stream');
