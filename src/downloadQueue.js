@@ -9,8 +9,8 @@ const {
   getPlaylistTrackPath,
 } = require('./paths');
 
-const MAX_CONCURRENT = 3;
-const TRACKS_PER_BATCH_CONCURRENT = 4;
+const MAX_CONCURRENT = 1;
+const TRACKS_PER_BATCH_CONCURRENT = 1;
 const SEGMENTS_CONCURRENT = 6;
 
 const noopRes = {
